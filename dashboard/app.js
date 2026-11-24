@@ -204,6 +204,41 @@
     });
   }
 
+  // Download the board as CSV: the rows the board is showing right now —
+  // the current search, category, chain and watchlist filters, in the
+  // current sort order. Raw figures, not the formatted strings, so the file
+  // is usable in a spreadsheet. Only the pre-token tab exports: the live
+  // and set-aside tabs have no ranked rows to export.
+  function csvCell(value) {
+    if (value === null || value === undefined) return '';
+    var s = String(value);
+    if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  function boardCsv(list) {
+    var lines = [['rank', 'protocol', 'slug', 'category', 'chains', 'tvl_usd', 'change_7d_pct', 'age_days', 'implied_value_usd', 'watchlist']];
+    list.forEach(function (r) {
+      lines.push([
+        r.rank, r.name, r.slug, r.category || '', (r.chains || []).join(';'),
+        r.tvl_usd, r.change_7d === null ? '' : r.change_7d,
+        r.age_days === null ? '' : r.age_days, r.implied_value_usd,
+        WATCH[r.slug] ? 'yes' : 'no'
+      ]);
+    });
+    return lines.map(function (cells) { return cells.map(csvCell).join(','); }).join('\r\n') + '\r\n';
+  }
+  function downloadCsv() {
+    var blob = new Blob([boardCsv(sortedRows(rows()))], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'token-radar-board.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function header() {
     return el('header', { class: 'top' },
       el('div', { class: 'brand' }, el('span', { class: 'mark' }), el('span', { class: 'brand-name', text: 'Token Radar' })),
@@ -251,13 +286,17 @@
     var pre = el('button', { type: 'button', 'aria-pressed': state.tab === 'pre-token' ? 'true' : 'false', text: 'Pre-token', onclick: function () { state.tab = 'pre-token'; render(); } });
     var live = el('button', { type: 'button', 'aria-pressed': state.tab === 'live' ? 'true' : 'false', text: 'Live token', onclick: function () { state.tab = 'live'; render(); } });
     var aside = el('button', { type: 'button', 'aria-pressed': state.tab === 'set-aside' ? 'true' : 'false', text: 'Set aside', onclick: function () { state.tab = 'set-aside'; render(); } });
+    var csv = state.tab === 'pre-token'
+      ? el('button', { class: 'button', type: 'button', text: 'Download board as CSV', onclick: downloadCsv })
+      : null;
     return el('div', { class: 'controls' },
       el('div', { class: 'field' }, el('label', { for: 'q', text: 'Search' }), search),
       el('div', { class: 'field' }, el('label', { for: 'category', text: 'Category' }), select),
       el('div', { class: 'field' }, el('label', { for: 'chain', text: 'Chain' }), chainSelect),
       el('label', { class: 'check', for: 'wl' }, wl, 'Watchlist only'),
       el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Token status' }), el('div', { class: 'tabs' }, pre, live, aside)),
-      el('span', { class: 'count', text: state.tab === 'pre-token' ? rows().length + ' rows shown' : state.tab === 'live' ? DATA.live.length + ' live-token protocols' : DATA.set_aside.length + ' set aside, not ranked' })
+      el('span', { class: 'count', text: state.tab === 'pre-token' ? rows().length + ' rows shown' : state.tab === 'live' ? DATA.live.length + ' live-token protocols' : DATA.set_aside.length + ' set aside, not ranked' }),
+      csv
     );
   }
 
@@ -499,6 +538,10 @@
   }
 
   function render() {
+    // render() rebuilds the whole board on every keystroke, which would
+    // drop the search box's focus after the first character: remember it
+    // and hand it back to the fresh input, caret at the end.
+    var refocusSearch = document.activeElement && document.activeElement.id === 'q';
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
@@ -509,6 +552,10 @@
     app.appendChild(shell);
     app.setAttribute('aria-busy', 'false');
     if (!dialog.isConnected) app.appendChild(dialog);
+    if (refocusSearch) {
+      var q = document.getElementById('q');
+      if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    }
     if (state.selected) openDetail(state.selected);
   }
 
